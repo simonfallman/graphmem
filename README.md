@@ -2,7 +2,7 @@
 
 Graph-based long-term memory for Claude Code. Store, query, and traverse a temporal knowledge graph that persists across all your sessions.
 
-Built on [graphiti-core](https://github.com/getzep/graphiti) — a temporal knowledge graph framework that handles entity extraction, relationship management, and hybrid search.
+Built on [graphiti-core](https://github.com/getzep/graphiti) by [Zep](https://github.com/getzep) — the engine that does all the heavy lifting: entity extraction, temporal knowledge graphs, hybrid search, and fact invalidation. GraphMem is a CLI wrapper that makes it easy to use from Claude Code.
 
 ## Why GraphMem?
 
@@ -41,11 +41,12 @@ graphmem update "Switched from JWT to OAuth2 for authentication"
 ## Installation
 
 ```bash
-# Clone
-git clone https://github.com/YOUR_USER/graphmem.git
-cd graphmem
+# Install from GitHub
+pip install git+https://github.com/simonfallman/graphmem.git
 
-# Install with all providers
+# Or clone and install locally
+git clone https://github.com/simonfallman/graphmem.git
+cd graphmem
 pip install -e ".[all]"
 
 # Or install with specific providers only
@@ -91,15 +92,17 @@ OPENAI_API_KEY=sk-...
 | `graphmem list entities` | List entities |
 | `graphmem status` | Graph stats |
 | `graphmem export` | Export graph as JSON |
+| `graphmem viz` | Interactive graph visualization (live-updating) |
+| `graphmem install-command` | Install `/memory` slash command for Claude Code |
 
 ## Claude Code Integration
 
 ### Option 1: `/memory` Slash Command
 
-Copy the skill file to your Claude Code commands directory:
+Install the slash command globally:
 
 ```bash
-cp claude-commands/memory.md ~/.claude/commands/memory.md
+graphmem install-command
 ```
 
 Then use in Claude Code:
@@ -119,6 +122,12 @@ GraphMem wraps [graphiti-core](https://github.com/getzep/graphiti), which provid
 2. **Temporal Knowledge Graph** — facts have validity windows (valid_at / invalid_at)
 3. **Hybrid Search** — combines semantic embeddings, BM25 keyword search, and graph traversal
 4. **Automatic Invalidation** — conflicting new facts mark old ones as invalid
+
+## Acknowledgements
+
+GraphMem is built on [graphiti-core](https://github.com/getzep/graphiti) by [Zep](https://www.getzep.com/), which provides the temporal knowledge graph engine — entity extraction, hybrid search, fact invalidation, and graph storage. All the hard graph problems are solved by Graphiti; GraphMem just wraps it in a CLI for Claude Code.
+
+Graphiti is licensed under Apache 2.0.
 
 ## License
 

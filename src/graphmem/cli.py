@@ -332,13 +332,13 @@ def viz(
 
     gm = GraphMem()
     data = run_async(gm.viz_data(group_id=group))
+    run_async(gm.close())
 
     node_count = len(data.get("nodes", []))
     link_count = len(data.get("links", []))
 
     if node_count == 0:
         console.print("[yellow]No entities to visualize. Add some memories first.[/yellow]")
-        run_async(gm.close())
         return
 
     # Load HTML template and inject data
@@ -354,7 +354,6 @@ def viz(
     )
 
     if static:
-        run_async(gm.close())
         out_path = output or "graphmem-viz.html"
         Path(out_path).write_text(html)
         console.print(f"[green]Saved to {out_path}[/green] ({node_count} entities, {link_count} facts)")
@@ -371,7 +370,7 @@ def viz(
 
     from graphmem.viz.server import VizServer
 
-    server = VizServer(html, port, gm, poll_interval=poll_interval, group_id=group)
+    server = VizServer(html, port, poll_interval=poll_interval, group_id=group)
 
     url = f"http://127.0.0.1:{port}"
     webbrowser.open(url)
@@ -381,7 +380,7 @@ def viz(
     try:
         asyncio.run(server.run())
     except KeyboardInterrupt:
-        run_async(gm.close())
+        pass
 
 
 @app.command(name="install-command")

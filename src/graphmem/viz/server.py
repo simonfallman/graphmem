@@ -23,24 +23,31 @@ class VizServer:
         self,
         html: str,
         port: int,
-        gm: GraphMem,
         poll_interval: float = 3.0,
         group_id: str | None = None,
     ):
         self.html = html
         self.http_port = port
         self.ws_port = port + 1
-        self.gm = gm
         self.poll_interval = poll_interval
         self.group_id = group_id
         self.clients: set = set()
         self._last_hash: str = ""
 
+    async def _fetch_data(self) -> dict:
+        """Open DB, read viz data, close DB. Releases the lock between polls."""
+        gm = GraphMem()
+        try:
+            data = await gm.viz_data(group_id=self.group_id)
+            return data
+        finally:
+            await gm.close()
+
     async def _ws_handler(self, websocket):
         """Handle a WebSocket connection."""
         self.clients.add(websocket)
         try:
-            data = await self.gm.viz_data(group_id=self.group_id)
+            data = await self._fetch_data()
             await websocket.send(json.dumps(data))
             async for _ in websocket:
                 pass
@@ -52,7 +59,7 @@ class VizServer:
         while True:
             await asyncio.sleep(self.poll_interval)
             try:
-                data = await self.gm.viz_data(group_id=self.group_id)
+                data = await self._fetch_data()
                 data_json = json.dumps(data, sort_keys=True)
                 data_hash = hashlib.md5(data_json.encode()).hexdigest()
                 if data_hash != self._last_hash:
