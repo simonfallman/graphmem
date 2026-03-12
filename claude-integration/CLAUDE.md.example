@@ -1,0 +1,42 @@
+# Claude Code — GraphMem Integration
+
+## Long-Term Memory
+
+This project uses `graphmem` for persistent graph-based memory that persists across all sessions.
+
+### Proactive Memory Usage
+
+**Before answering architecture or domain questions**, check memory first:
+```bash
+graphmem query "relevant topic"
+```
+
+**When making or learning about decisions**, store them:
+```bash
+graphmem add "Decided to use PostgreSQL because we need ACID transactions"
+```
+
+**When learning about code patterns or structure**, store them:
+```bash
+graphmem add "The payment module uses strategy pattern for different payment providers"
+```
+
+**When information changes or is corrected**, update it:
+```bash
+graphmem update "Switched from REST to GraphQL for the public API because of N+1 query issues"
+```
+Old conflicting facts are automatically marked as invalid (temporal awareness).
+
+**For deep context on a topic**, use graph traversal:
+```bash
+graphmem context "authentication" --depth 3
+```
+
+### When to Use Memory
+
+- Starting a new task → query for existing context
+- Making an architectural decision → store it
+- Discovering a code pattern → store it
+- Fixing a bug → store what caused it and the fix
+- User corrects you → update the memory
+- Before suggesting a technology → check if there's a past decision about it
