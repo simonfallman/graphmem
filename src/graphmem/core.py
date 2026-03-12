@@ -422,6 +422,16 @@ class GraphMem:
             ],
         }
 
+    async def write_live_data(self, group_id: str | None = None) -> None:
+        """Write ~/.graphmem/graph-data.js for the serverless live visualizer."""
+        import json
+
+        from graphmem.utils import get_graphmem_home
+
+        data = await self.viz_data(group_id=group_id)
+        js = f"window.GRAPH_DATA = {json.dumps(data)};\n"
+        (get_graphmem_home() / "graph-data.js").write_text(js)
+
     async def ping(self) -> dict[str, bool]:
         """Test connectivity to all services."""
         results: dict[str, bool] = {}

@@ -1,6 +1,6 @@
 # GraphMem
 
-Graph-based long-term memory for Claude Code. Store, query, and traverse a temporal knowledge graph that persists across all your sessions.
+Graph-based long-term memory for Claude Code. Store, query, and traverse a temporal knowledge graph that persists across all your sessions and projects.
 
 Built on [graphiti-core](https://github.com/getzep/graphiti) by [Zep](https://github.com/getzep) — the engine that does all the heavy lifting: entity extraction, temporal knowledge graphs, hybrid search, and fact invalidation. GraphMem is a CLI wrapper that makes it easy to use from Claude Code.
 
@@ -8,6 +8,7 @@ Built on [graphiti-core](https://github.com/getzep/graphiti) by [Zep](https://gi
 
 Claude Code's built-in memory (CLAUDE.md) is flat text. GraphMem gives you:
 
+- **Cross-project, cross-session** — one graph shared across all your projects
 - **Relationship-aware retrieval** — "What depends on the auth module?" traverses graph edges
 - **Per-node RAG** — each entity has an embedding for semantic search, then graph traversal expands context
 - **Temporal awareness** — tracks when facts were learned, when they became outdated, and why
@@ -17,7 +18,7 @@ Claude Code's built-in memory (CLAUDE.md) is flat text. GraphMem gives you:
 
 ```bash
 # Install
-pip install -e ".[all]"
+pip install git+https://github.com/simonfallman/graphmem.git
 
 # Interactive setup (picks DB, embedding provider, LLM provider)
 graphmem init
@@ -37,6 +38,11 @@ graphmem context "auth module" --depth 3
 # Update (old conflicting facts auto-invalidated)
 graphmem update "Switched from JWT to OAuth2 for authentication"
 ```
+
+On first run, graphmem automatically:
+- Installs the `/longmemory` slash command into Claude Code
+- Appends proactive memory instructions to `~/.claude/CLAUDE.md`
+- Sets up the live graph viewer at `~/.graphmem/graph-live.html`
 
 ## Installation
 
@@ -92,27 +98,38 @@ OPENAI_API_KEY=sk-...
 | `graphmem list entities` | List entities |
 | `graphmem status` | Graph stats |
 | `graphmem export` | Export graph as JSON |
-| `graphmem viz` | Interactive graph visualization (live-updating) |
-| `graphmem install-command` | Install `/memory` slash command for Claude Code |
+| `graphmem viz` | Live graph visualization (WebSocket server) |
+| `graphmem viz --live` | Open serverless live viewer (no server required) |
+| `graphmem install-command` | Install `/longmemory` slash command for Claude Code |
 
 ## Claude Code Integration
 
-### Option 1: `/memory` Slash Command
+### Automatic setup
 
-Install the slash command globally:
+Just run any `graphmem` command. It silently installs three things into your Claude Code environment:
+
+1. **`~/.claude/CLAUDE.md`** — global instructions telling Claude to proactively query and save memories in every session, across every project
+2. **`~/.claude/commands/longmemory.md`** — the `/longmemory` slash command
+3. **`~/.graphmem/graph-live.html`** — live graph viewer (open once in Chrome, stays live)
+
+### `/longmemory` Slash Command
+
+Use in any Claude Code session:
+- `/longmemory query auth` — search memories
+- `/longmemory add "JWT uses RS256"` — store a memory
+- `/longmemory context "auth module"` — graph context
+- `/longmemory status` — graph stats
+- `/longmemory viz` — open live viewer
+
+### Live Graph Viewer
+
+Open `~/.graphmem/graph-live.html` in Chrome once. The graph updates automatically within 2 seconds of every `graphmem add` or `graphmem update` — no server, no refresh, no WebSocket. Uses dynamic script injection to reload `graph-data.js` from disk.
+
+Or launch it directly:
 
 ```bash
-graphmem install-command
+graphmem viz --live
 ```
-
-Then use in Claude Code:
-- `/memory query auth` — search memories
-- `/memory add "JWT uses RS256"` — store a memory
-- `/memory context "auth module"` — graph context
-
-### Option 2: CLAUDE.md Instructions
-
-Add the contents of `claude-integration/CLAUDE.md.example` to your project's `CLAUDE.md`. This tells Claude Code to proactively use GraphMem during conversations.
 
 ## How It Works
 

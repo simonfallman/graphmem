@@ -42,6 +42,88 @@ app = typer.Typer(
 console = Console()
 
 
+def _auto_install_command() -> None:
+    """Silently install the /longmemory Claude Code command if not already present."""
+    import importlib.resources
+
+    dest = Path.home() / ".claude" / "commands" / "longmemory.md"
+    if dest.exists():
+        return
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        src = importlib.resources.files("graphmem.commands").joinpath("longmemory.md")
+        dest.write_text(src.read_text())
+    except Exception:
+        pass  # Never break the CLI due to command install failure
+
+
+def _auto_install_live_viewer() -> None:
+    """Keep ~/.graphmem/graph-live.html up to date with the installed package version."""
+    import importlib.resources
+
+    try:
+        src = importlib.resources.files("graphmem.viz").joinpath("graph-live.html")
+        dest = get_graphmem_home() / "graph-live.html"
+        dest.write_text(src.read_text())
+    except Exception:
+        pass  # Never break the CLI due to viewer install failure
+
+
+_CLAUDE_MD_BLOCK = """\
+## Long-Term Memory (graphmem)
+
+All sessions use `graphmem` for persistent cross-project, cross-session memory.
+
+### Query before starting work
+```
+graphmem query "<topic>"
+```
+
+### Save proactively — without being asked
+- User corrections and preferences → save immediately
+- Architectural/technical decisions and their reasons
+- Project patterns, discovered constraints, rules the user states
+- Bugs found and what caused them
+
+```
+graphmem add "<fact>"
+graphmem update "<revised fact>"
+```
+
+### When to query
+- Starting any non-trivial task → query for relevant context
+- User references past work or decisions → query first
+- About to make an architectural decision → query for precedents
+
+### When to save
+- User corrects you or states a preference
+- A decision is made with future implications
+- A non-obvious pattern or constraint is discovered
+"""
+
+_CLAUDE_MD_MARKER = "## Long-Term Memory (graphmem)"
+
+
+def _auto_install_claude_md() -> None:
+    """Append graphmem instructions to ~/.claude/CLAUDE.md if not already present."""
+    try:
+        claude_md = Path.home() / ".claude" / "CLAUDE.md"
+        claude_md.parent.mkdir(parents=True, exist_ok=True)
+        existing = claude_md.read_text() if claude_md.exists() else ""
+        if _CLAUDE_MD_MARKER not in existing:
+            separator = "\n" if existing and not existing.endswith("\n\n") else ""
+            claude_md.write_text(existing + separator + _CLAUDE_MD_BLOCK)
+    except Exception:
+        pass  # Never break the CLI due to CLAUDE.md install failure
+
+
+@app.callback()
+def _callback() -> None:
+    _auto_install_command()
+    _auto_install_live_viewer()
+    _auto_install_claude_md()
+
+
 @app.command()
 def init():
     """Interactive setup — pick providers and configure credentials."""
@@ -171,6 +253,16 @@ def ping():
     run_async(gm.close())
 
 
+def _write_live_data_silent(group: Optional[str] = None) -> None:
+    """Write graph-data.js for the live visualizer. Never raises."""
+    try:
+        gm = GraphMem()
+        run_async(gm.write_live_data(group_id=group))
+        run_async(gm.close())
+    except Exception:
+        pass
+
+
 @app.command()
 def add(
     content: str = typer.Argument(..., help="The memory text to store"),
@@ -182,6 +274,7 @@ def add(
     result = run_async(gm.add(content, source=source, group_id=group))
     format_add_result(result)
     run_async(gm.close())
+    _write_live_data_silent(group)
 
 
 @app.command()
@@ -228,6 +321,7 @@ def update(
         "[dim]Conflicting old facts are automatically marked as invalid.[/dim]"
     )
     run_async(gm.close())
+    _write_live_data_silent(group)
 
 
 @app.command()
@@ -321,13 +415,12 @@ def export(
 def viz(
     port: int = typer.Option(8765, "--port", "-p", help="Local server port"),
     static: bool = typer.Option(False, "--static", help="Generate HTML file instead of serving"),
+    live: bool = typer.Option(False, "--live", help="Serverless file-based live mode (no server, works from file://)"),
     output: Optional[str] = typer.Option(None, "--output", "-o", help="Output path for static HTML"),
     group: Optional[str] = typer.Option(None, "--group", "-g"),
     poll_interval: float = typer.Option(3.0, "--poll-interval", help="Seconds between graph updates (live mode)"),
 ):
     """Open an interactive graph visualization in the browser."""
-    import asyncio
-    import re
     import webbrowser
 
     gm = GraphMem()
@@ -340,6 +433,16 @@ def viz(
     if node_count == 0:
         console.print("[yellow]No entities to visualize. Add some memories first.[/yellow]")
         return
+
+    if live:
+        html_path = get_graphmem_home() / "graph-live.html"
+        webbrowser.open(html_path.as_uri())
+        console.print(f"[green]Opened {html_path}[/green] ({node_count} entities, {link_count} facts)")
+        console.print("[dim]Updates automatically when you run graphmem add or update[/dim]")
+        return
+
+    import asyncio
+    import re
 
     # Load HTML template and inject data
     template_path = Path(__file__).parent / "viz" / "graph.html"
@@ -359,7 +462,7 @@ def viz(
         console.print(f"[green]Saved to {out_path}[/green] ({node_count} entities, {link_count} facts)")
         return
 
-    # Live mode: inject WS port and start live server
+    # WebSocket server mode: inject WS port and start live server
     ws_port = port + 1
     html = re.sub(
         r'/\*WS_PORT\*/.*?/\*END_WS_PORT\*/',
@@ -390,13 +493,13 @@ def install_command():
 
     commands_dir = Path.home() / ".claude" / "commands"
     commands_dir.mkdir(parents=True, exist_ok=True)
-    dest = commands_dir / "memory.md"
+    dest = commands_dir / "longmemory.md"
 
-    src = importlib.resources.files("graphmem.commands").joinpath("memory.md")
+    src = importlib.resources.files("graphmem.commands").joinpath("longmemory.md")
     dest.write_text(src.read_text())
 
-    console.print(f"[green]Installed /memory command to {dest}[/green]")
-    console.print("Use [bold]/memory setup[/bold] in any Claude Code session to configure a project.")
+    console.print(f"[green]Installed /longmemory command to {dest}[/green]")
+    console.print("Use [bold]/longmemory setup[/bold] in any Claude Code session to configure a project.")
 
 
 if __name__ == "__main__":
