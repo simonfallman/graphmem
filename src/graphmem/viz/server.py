@@ -75,6 +75,10 @@ class VizServer:
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self_inner):
+                if self_inner.path not in ("/", "/index.html"):
+                    self_inner.send_response(404)
+                    self_inner.end_headers()
+                    return
                 self_inner.send_response(200)
                 self_inner.send_header("Content-Type", "text/html; charset=utf-8")
                 self_inner.send_header("Content-Length", str(len(html_bytes)))

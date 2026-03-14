@@ -10,9 +10,14 @@ body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMac
 svg { width: 100vw; height: 100vh; display: block; }
 .link { stroke: #30363d; stroke-width: 1.5; fill: none; }
 .link:hover { stroke: #58a6ff; stroke-width: 2.5; }
+.link.highlighted { stroke: #58a6ff; stroke-width: 2.5; }
 .link-label { fill: #8b949e; font-size: 10px; pointer-events: none; }
 .node circle { stroke: #0d1117; stroke-width: 2; cursor: grab; }
 .node circle:hover { stroke: #58a6ff; stroke-width: 3; }
+.node.highlighted circle { stroke: #ffa657; stroke-width: 3; }
+.node.dimmed { opacity: 0.2; }
+.link.dimmed { opacity: 0.1; }
+.link-label.dimmed { opacity: 0.1; }
 .node text { fill: #c9d1d9; font-size: 12px; font-weight: 600; pointer-events: none; }
 .node:active circle { cursor: grabbing; }
 #tooltip {
@@ -32,6 +37,64 @@ svg { width: 100vw; height: 100vh; display: block; }
 .ws-status { font-size: 11px; margin-top: 4px; color: #8b949e; }
 .ws-status.connected { color: #7ee787; }
 marker { fill: #30363d; }
+
+/* Search box */
+#search-box {
+  position: fixed; top: 16px; right: 16px; z-index: 5;
+  background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+  padding: 8px 12px; display: flex; gap: 8px; align-items: center;
+}
+#search-input {
+  background: #0d1117; border: 1px solid #30363d; border-radius: 4px;
+  color: #c9d1d9; padding: 6px 10px; font-size: 13px; width: 200px;
+  outline: none;
+}
+#search-input:focus { border-color: #58a6ff; }
+#search-input::placeholder { color: #484f58; }
+
+/* Controls */
+#controls {
+  position: fixed; bottom: 16px; right: 16px; z-index: 5;
+  display: flex; gap: 8px;
+}
+#controls button {
+  background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+  color: #c9d1d9; padding: 8px 14px; font-size: 12px; cursor: pointer;
+  transition: border-color 0.15s;
+}
+#controls button:hover { border-color: #58a6ff; color: #58a6ff; }
+
+/* Detail panel */
+#detail-panel {
+  position: fixed; top: 0; right: -380px; width: 380px; height: 100vh; z-index: 20;
+  background: #161b22; border-left: 1px solid #30363d;
+  padding: 20px; overflow-y: auto; transition: right 0.25s ease;
+  font-size: 13px;
+}
+#detail-panel.open { right: 0; }
+#detail-panel .close-btn {
+  position: absolute; top: 12px; right: 12px; background: none; border: none;
+  color: #8b949e; font-size: 20px; cursor: pointer; line-height: 1;
+}
+#detail-panel .close-btn:hover { color: #c9d1d9; }
+#detail-panel .detail-name { font-size: 18px; font-weight: 700; color: #58a6ff; margin-bottom: 8px; }
+#detail-panel .detail-summary { color: #8b949e; line-height: 1.5; margin-bottom: 16px; }
+#detail-panel .detail-section { margin-bottom: 12px; }
+#detail-panel .detail-section h3 { font-size: 12px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+#detail-panel .edge-item { padding: 6px 0; border-bottom: 1px solid #21262d; }
+#detail-panel .edge-item .edge-name { color: #58a6ff; font-weight: 600; }
+#detail-panel .edge-item .edge-fact { color: #c9d1d9; margin-top: 2px; }
+#detail-panel .edge-item .edge-target { color: #8b949e; font-size: 11px; }
+
+/* Legend */
+#legend {
+  position: fixed; bottom: 16px; left: 16px; z-index: 5;
+  background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+  padding: 8px 12px; font-size: 11px; color: #8b949e;
+}
+#legend .legend-title { font-weight: 600; margin-bottom: 4px; color: #c9d1d9; }
+#legend .legend-item { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+#legend .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -39,6 +102,26 @@ marker { fill: #30363d; }
   <h1>GraphMem</h1>
   <div class="stats" id="stats"></div>
   <div class="ws-status" id="ws-status"></div>
+</div>
+<div id="search-box">
+  <input type="text" id="search-input" placeholder="Search entities..." />
+</div>
+<div id="controls">
+  <button id="btn-fit">Fit to view</button>
+  <button id="btn-reset">Reset layout</button>
+</div>
+<div id="detail-panel">
+  <button class="close-btn" id="detail-close">&times;</button>
+  <div class="detail-name" id="detail-name"></div>
+  <div class="detail-summary" id="detail-summary"></div>
+  <div class="detail-section" id="detail-edges">
+    <h3>Connected Facts</h3>
+    <div id="detail-edge-list"></div>
+  </div>
+</div>
+<div id="legend">
+  <div class="legend-title">Nodes colored by name</div>
+  <div id="legend-items"></div>
 </div>
 <div id="tooltip">
   <div class="name"></div>
@@ -55,13 +138,27 @@ document.getElementById('stats').textContent =
   `${data.nodes.length} entities, ${data.links.length} facts`;
 
 const colors = ['#58a6ff','#f78166','#7ee787','#d2a8ff','#ff7b72','#79c0ff','#ffa657','#56d4dd'];
-function nodeColor(i) { return colors[i % colors.length]; }
+function stableHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = ((hash << 5) - hash) + str.charCodeAt(i);
+  return Math.abs(hash);
+}
+function nodeColor(d) { return colors[stableHash(d.id) % colors.length]; }
 
 const svg = d3.select('svg');
-const width = window.innerWidth;
-const height = window.innerHeight;
+let width = window.innerWidth;
+let height = window.innerHeight;
 
 svg.attr('viewBox', [0, 0, width, height]);
+
+// Update on resize
+window.addEventListener('resize', () => {
+  width = window.innerWidth;
+  height = window.innerHeight;
+  svg.attr('viewBox', [0, 0, width, height]);
+  simulation.force('center', d3.forceCenter(width / 2, height / 2));
+  simulation.alpha(0.1).restart();
+});
 
 // Arrow marker
 svg.append('defs').append('marker')
@@ -79,9 +176,10 @@ const linkLabelGroup = g.append('g');
 const nodeGroup = g.append('g');
 
 // Zoom
-svg.call(d3.zoom()
+const zoom = d3.zoom()
   .scaleExtent([0.1, 8])
-  .on('zoom', (e) => g.attr('transform', e.transform)));
+  .on('zoom', (e) => g.attr('transform', e.transform));
+svg.call(zoom);
 
 const simulation = d3.forceSimulation(data.nodes)
   .force('link', d3.forceLink(data.links).id(d => d.id).distance(140))
@@ -98,13 +196,19 @@ function showTip(e, name, text) {
   tipName.textContent = name;
   tipSummary.textContent = text;
   tooltip.style.display = 'block';
-  tooltip.style.left = (e.clientX + 16) + 'px';
-  tooltip.style.top = (e.clientY - 10) + 'px';
+  positionTooltip(e);
 }
-function moveTip(e) {
-  tooltip.style.left = (e.clientX + 16) + 'px';
-  tooltip.style.top = (e.clientY - 10) + 'px';
+function positionTooltip(e) {
+  let x = e.clientX + 16;
+  let y = e.clientY - 10;
+  const rect = tooltip.getBoundingClientRect();
+  if (x + rect.width > window.innerWidth - 8) x = e.clientX - rect.width - 16;
+  if (y + rect.height > window.innerHeight - 8) y = window.innerHeight - rect.height - 8;
+  if (y < 8) y = 8;
+  tooltip.style.left = x + 'px';
+  tooltip.style.top = y + 'px';
 }
+function moveTip(e) { positionTooltip(e); }
 function hideTip() { tooltip.style.display = 'none'; }
 
 function dragStart(e, d) {
@@ -120,7 +224,179 @@ function dragEnd(e, d) {
 function linkKey(d) {
   const s = d.source.id || d.source;
   const t = d.target.id || d.target;
-  return `${s}-${t}`;
+  return `${s}-${t}-${d.name}`;
+}
+
+// Detail panel
+const detailPanel = document.getElementById('detail-panel');
+document.getElementById('detail-close').addEventListener('click', () => {
+  detailPanel.classList.remove('open');
+  clearHighlights();
+});
+
+function showDetail(d) {
+  document.getElementById('detail-name').textContent = d.name;
+  document.getElementById('detail-summary').textContent = d.summary || 'No summary available';
+
+  const edgeList = document.getElementById('detail-edge-list');
+  edgeList.innerHTML = '';
+
+  const connected = data.links.filter(l => {
+    const sid = l.source.id || l.source;
+    const tid = l.target.id || l.target;
+    return sid === d.id || tid === d.id;
+  });
+
+  if (connected.length === 0) {
+    edgeList.innerHTML = '<div style="color:#484f58">No connected facts</div>';
+  } else {
+    connected.forEach(l => {
+      const sid = l.source.id || l.source;
+      const tid = l.target.id || l.target;
+      const otherName = sid === d.id
+        ? (data.nodes.find(n => n.id === tid) || {}).name || tid
+        : (data.nodes.find(n => n.id === sid) || {}).name || sid;
+      const direction = sid === d.id ? '\u2192' : '\u2190';
+
+      const item = document.createElement('div');
+      item.className = 'edge-item';
+      item.innerHTML = `<div class="edge-name">${escapeHtml(l.name)}</div>
+        <div class="edge-fact">${escapeHtml(l.fact || '')}</div>
+        <div class="edge-target">${direction} ${escapeHtml(otherName)}</div>`;
+      edgeList.appendChild(item);
+    });
+  }
+
+  detailPanel.classList.add('open');
+  highlightNode(d.id);
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function highlightNode(nodeId) {
+  nodeGroup.selectAll('g').classed('dimmed', d => d.id !== nodeId)
+    .classed('highlighted', d => d.id === nodeId);
+
+  const connectedIds = new Set([nodeId]);
+  data.links.forEach(l => {
+    const sid = l.source.id || l.source;
+    const tid = l.target.id || l.target;
+    if (sid === nodeId) connectedIds.add(tid);
+    if (tid === nodeId) connectedIds.add(sid);
+  });
+
+  nodeGroup.selectAll('g').classed('dimmed', d => !connectedIds.has(d.id))
+    .classed('highlighted', d => d.id === nodeId);
+
+  linkGroup.selectAll('line').classed('dimmed', l => {
+    const sid = l.source.id || l.source;
+    const tid = l.target.id || l.target;
+    return sid !== nodeId && tid !== nodeId;
+  }).classed('highlighted', l => {
+    const sid = l.source.id || l.source;
+    const tid = l.target.id || l.target;
+    return sid === nodeId || tid === nodeId;
+  });
+
+  linkLabelGroup.selectAll('text').classed('dimmed', l => {
+    const sid = l.source.id || l.source;
+    const tid = l.target.id || l.target;
+    return sid !== nodeId && tid !== nodeId;
+  });
+}
+
+function clearHighlights() {
+  nodeGroup.selectAll('g').classed('dimmed', false).classed('highlighted', false);
+  linkGroup.selectAll('line').classed('dimmed', false).classed('highlighted', false);
+  linkLabelGroup.selectAll('text').classed('dimmed', false);
+}
+
+// Search
+const searchInput = document.getElementById('search-input');
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.trim().toLowerCase();
+  if (!q) { clearHighlights(); return; }
+
+  const matchIds = new Set();
+  data.nodes.forEach(n => {
+    if (n.name.toLowerCase().includes(q) || (n.summary || '').toLowerCase().includes(q)) {
+      matchIds.add(n.id);
+    }
+  });
+
+  if (matchIds.size === 0) { clearHighlights(); return; }
+
+  // Also show connected nodes
+  const connectedIds = new Set(matchIds);
+  data.links.forEach(l => {
+    const sid = l.source.id || l.source;
+    const tid = l.target.id || l.target;
+    if (matchIds.has(sid)) connectedIds.add(tid);
+    if (matchIds.has(tid)) connectedIds.add(sid);
+  });
+
+  nodeGroup.selectAll('g').classed('dimmed', d => !connectedIds.has(d.id))
+    .classed('highlighted', d => matchIds.has(d.id));
+
+  linkGroup.selectAll('line').classed('dimmed', l => {
+    const sid = l.source.id || l.source;
+    const tid = l.target.id || l.target;
+    return !matchIds.has(sid) && !matchIds.has(tid);
+  });
+
+  linkLabelGroup.selectAll('text').classed('dimmed', l => {
+    const sid = l.source.id || l.source;
+    const tid = l.target.id || l.target;
+    return !matchIds.has(sid) && !matchIds.has(tid);
+  });
+});
+
+// Fit to view
+document.getElementById('btn-fit').addEventListener('click', fitToView);
+
+function fitToView() {
+  if (data.nodes.length === 0) return;
+  const xs = data.nodes.map(n => n.x || 0);
+  const ys = data.nodes.map(n => n.y || 0);
+  const x0 = Math.min(...xs) - 60, x1 = Math.max(...xs) + 60;
+  const y0 = Math.min(...ys) - 60, y1 = Math.max(...ys) + 60;
+  const bw = x1 - x0, bh = y1 - y0;
+  const scale = Math.min(width / bw, height / bh, 2) * 0.9;
+  const tx = (width - bw * scale) / 2 - x0 * scale;
+  const ty = (height - bh * scale) / 2 - y0 * scale;
+  svg.transition().duration(500).call(
+    zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale)
+  );
+}
+
+// Reset layout
+document.getElementById('btn-reset').addEventListener('click', () => {
+  data.nodes.forEach(n => { n.fx = null; n.fy = null; });
+  simulation.alpha(1).restart();
+  setTimeout(fitToView, 800);
+});
+
+// Legend
+function updateLegend() {
+  const container = document.getElementById('legend-items');
+  container.innerHTML = '';
+  const shown = data.nodes.slice(0, 8);
+  shown.forEach(n => {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = `<span class="legend-dot" style="background:${nodeColor(n)}"></span><span>${escapeHtml(n.name)}</span>`;
+    container.appendChild(item);
+  });
+  if (data.nodes.length > 8) {
+    const more = document.createElement('div');
+    more.style.color = '#484f58';
+    more.textContent = `+${data.nodes.length - 8} more`;
+    container.appendChild(more);
+  }
 }
 
 function renderGraph() {
@@ -153,14 +429,15 @@ function renderGraph() {
     .attr('class', 'node')
     .call(d3.drag().on('start', dragStart).on('drag', dragging).on('end', dragEnd));
   nodeEnter.append('circle').attr('r', 14)
-    .attr('fill', (d, i) => nodeColor(data.nodes.indexOf(d)));
+    .attr('fill', d => nodeColor(d));
   nodeEnter.append('text').attr('dx', 18).attr('dy', 4).text(d => d.name);
   const nodeMerged = nodeEnter.merge(nodeSel);
 
   nodeMerged
     .on('mouseover', (e, d) => showTip(e, d.name, d.summary || 'No summary'))
     .on('mousemove', moveTip)
-    .on('mouseout', hideTip);
+    .on('mouseout', hideTip)
+    .on('click', (e, d) => { e.stopPropagation(); showDetail(d); });
 
   // Update simulation
   simulation.nodes(data.nodes);
@@ -176,7 +453,15 @@ function renderGraph() {
       .attr('y', d => (d.source.y + d.target.y) / 2 - 6);
     nodeMerged.attr('transform', d => `translate(${d.x},${d.y})`);
   });
+
+  updateLegend();
 }
+
+// Close detail panel on background click
+svg.on('click', () => {
+  detailPanel.classList.remove('open');
+  clearHighlights();
+});
 
 // Initial render
 renderGraph();

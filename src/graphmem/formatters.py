@@ -12,30 +12,31 @@ from rich.tree import Tree
 console = Console()
 
 
+def _short_id(uuid: str) -> str:
+    """Show first 8 chars of a UUID — enough to be unique and copy-friendly."""
+    return uuid[:8] if uuid else ""
+
+
 def format_add_result(result: dict[str, Any]) -> None:
     """Display the result of adding a memory."""
     console.print(f"\n[green]Episode created:[/green] {result['episode_id']}")
 
     if result["entities"]:
         table = Table(title="Extracted Entities")
-        table.add_column("ID", style="dim", max_width=12)
         table.add_column("Name", style="cyan")
         table.add_column("Summary", style="white")
         for entity in result["entities"]:
             table.add_row(
-                entity["id"][:12] + "...",
                 entity["name"],
-                (entity.get("summary") or "")[:80],
+                (entity.get("summary") or "")[:100],
             )
         console.print(table)
 
     if result["facts"]:
         table = Table(title="Extracted Facts")
-        table.add_column("ID", style="dim", max_width=12)
         table.add_column("Fact", style="white")
         for fact in result["facts"]:
             table.add_row(
-                fact["id"][:12] + "...",
                 fact.get("fact", fact.get("source", "")),
             )
         console.print(table)
@@ -50,17 +51,17 @@ def format_search_results(results: list[dict[str, Any]]) -> None:
         console.print("[yellow]No results found.[/yellow]")
         return
 
-    table = Table(title="Search Results")
-    table.add_column("ID", style="dim", max_width=12)
+    table = Table(title=f"Search Results ({len(results)})")
+    table.add_column("#", style="dim", width=3)
     table.add_column("Fact", style="white")
     table.add_column("Valid", style="green", max_width=12)
     table.add_column("Invalid", style="red", max_width=12)
 
-    for r in results:
+    for i, r in enumerate(results, 1):
         valid = _format_date(r.get("valid_at"))
         invalid = _format_date(r.get("invalid_at"))
         table.add_row(
-            r["id"][:12] + "...",
+            str(i),
             r.get("fact") or r.get("name", ""),
             valid,
             invalid or "-",
@@ -77,7 +78,7 @@ def format_context(ctx: dict[str, Any]) -> None:
         entities_branch = tree.add("[cyan]Entities[/cyan]")
         for e in ctx["entities"]:
             entities_branch.add(
-                f"[bold]{e['name']}[/bold] — {(e.get('summary') or '')[:60]}"
+                f"[bold]{e['name']}[/bold] — {(e.get('summary') or '')[:80]}"
             )
 
     if ctx.get("facts"):
@@ -90,13 +91,13 @@ def format_context(ctx: dict[str, Any]) -> None:
         comm_branch = tree.add("[magenta]Communities[/magenta]")
         for c in ctx["communities"]:
             comm_branch.add(
-                f"[bold]{c['name']}[/bold] — {(c.get('summary') or '')[:60]}"
+                f"[bold]{c['name']}[/bold] — {(c.get('summary') or '')[:80]}"
             )
 
     if ctx.get("episodes"):
         ep_branch = tree.add("[blue]Episodes[/blue]")
         for ep in ctx["episodes"]:
-            ep_branch.add(f"{ep['name']} — {(ep.get('content') or '')[:60]}")
+            ep_branch.add(f"{ep['name']} — {(ep.get('content') or '')[:80]}")
 
     console.print(tree)
 
@@ -107,8 +108,8 @@ def format_list(items: list[dict[str, Any]], title: str) -> None:
         console.print(f"[yellow]No {title.lower()} found.[/yellow]")
         return
 
-    table = Table(title=title)
-    table.add_column("ID", style="dim", max_width=12)
+    table = Table(title=f"{title} ({len(items)})")
+    table.add_column("ID", style="dim")
     table.add_column("Name", style="cyan")
     table.add_column("Details", style="white")
     table.add_column("Created", style="dim", max_width=20)
@@ -116,13 +117,16 @@ def format_list(items: list[dict[str, Any]], title: str) -> None:
     for item in items:
         detail = item.get("summary") or item.get("content") or ""
         table.add_row(
-            item["id"][:12] + "...",
+            _short_id(item["id"]),
             item.get("name", ""),
-            detail[:80],
+            detail[:100],
             _format_date(item.get("created_at")) or "",
         )
 
     console.print(table)
+    console.print(
+        f"[dim]Use --json for full IDs, or --name with remove.[/dim]"
+    )
 
 
 def format_status(status: dict[str, Any]) -> None:

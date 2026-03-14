@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -21,6 +22,8 @@ from graphmem.formatters import (
     format_status,
 )
 from graphmem.utils import get_env_path, get_graphmem_home
+
+logger = logging.getLogger(__name__)
 
 
 def _detect_aws_credentials() -> bool:
@@ -54,7 +57,7 @@ def _auto_install_command() -> None:
         src = importlib.resources.files("graphmem.commands").joinpath("longmemory.md")
         dest.write_text(src.read_text())
     except Exception:
-        pass  # Never break the CLI due to command install failure
+        logger.debug("Failed to auto-install /longmemory command", exc_info=True)
 
 
 def _auto_install_live_viewer() -> None:
@@ -66,7 +69,7 @@ def _auto_install_live_viewer() -> None:
         dest = get_graphmem_home() / "graph-live.html"
         dest.write_text(src.read_text())
     except Exception:
-        pass  # Never break the CLI due to viewer install failure
+        logger.debug("Failed to auto-install live viewer", exc_info=True)
 
 
 _CLAUDE_MD_BLOCK = """\
@@ -114,7 +117,12 @@ def _auto_install_claude_md() -> None:
             separator = "\n" if existing and not existing.endswith("\n\n") else ""
             claude_md.write_text(existing + separator + _CLAUDE_MD_BLOCK)
     except Exception:
-        pass  # Never break the CLI due to CLAUDE.md install failure
+        logger.debug("Failed to auto-install CLAUDE.md block", exc_info=True)
+
+
+def _output_json(data: object) -> None:
+    """Print JSON to stdout (for --json flag)."""
+    console.print(json.dumps(data, indent=2, default=str))
 
 
 @app.callback()
@@ -239,6 +247,7 @@ def init():
         lines.append(f"GRAPHMEM_LOCAL_EMBED_MODEL={local_model}")
 
     env_path.write_text("\n".join(lines) + "\n")
+    env_path.chmod(0o600)  # Restrict to owner — contains API keys
     console.print(f"\n[green]Config saved to {env_path}[/green]")
     console.print("Run [bold]graphmem ping[/bold] to test connectivity.")
 
@@ -260,7 +269,7 @@ def _write_live_data_silent(group: Optional[str] = None) -> None:
         run_async(gm.write_live_data(group_id=group))
         run_async(gm.close())
     except Exception:
-        pass
+        logger.debug("Failed to write live data", exc_info=True)
 
 
 @app.command()
@@ -268,11 +277,15 @@ def add(
     content: str = typer.Argument(..., help="The memory text to store"),
     source: str = typer.Option("cli", "--source", "-s", help="Source label"),
     group: Optional[str] = typer.Option(None, "--group", "-g", help="Memory group"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Add a memory. Graphiti extracts entities and facts automatically."""
     gm = GraphMem()
     result = run_async(gm.add(content, source=source, group_id=group))
-    format_add_result(result)
+    if as_json:
+        _output_json(result)
+    else:
+        format_add_result(result)
     run_async(gm.close())
     _write_live_data_silent(group)
 
@@ -282,12 +295,34 @@ def query(
     query_text: str = typer.Argument(..., help="Search query"),
     limit: int = typer.Option(10, "--limit", "-l", help="Max results"),
     group: Optional[str] = typer.Option(None, "--group", "-g", help="Memory group"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Search memories using hybrid search (semantic + keyword + graph)."""
     gm = GraphMem()
     group_ids = [group] if group else None
     results = run_async(gm.query(query_text, num_results=limit, group_ids=group_ids))
-    format_search_results(results)
+    if as_json:
+        _output_json(results)
+    else:
+        format_search_results(results)
+    run_async(gm.close())
+
+
+@app.command()
+def search(
+    query_text: str = typer.Argument(..., help="Search query"),
+    limit: int = typer.Option(10, "--limit", "-l", help="Max results"),
+    group: Optional[str] = typer.Option(None, "--group", "-g", help="Memory group"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Alias for 'query' — search memories using hybrid search."""
+    gm = GraphMem()
+    group_ids = [group] if group else None
+    results = run_async(gm.query(query_text, num_results=limit, group_ids=group_ids))
+    if as_json:
+        _output_json(results)
+    else:
+        format_search_results(results)
     run_async(gm.close())
 
 
@@ -296,12 +331,16 @@ def context(
     topic: str = typer.Argument(..., help="Topic to explore"),
     depth: int = typer.Option(2, "--depth", "-d", help="Graph traversal depth"),
     group: Optional[str] = typer.Option(None, "--group", "-g", help="Memory group"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Get expanded context around a topic via graph traversal."""
     gm = GraphMem()
     group_ids = [group] if group else None
     ctx = run_async(gm.context(topic, depth=depth, group_ids=group_ids))
-    format_context(ctx)
+    if as_json:
+        _output_json(ctx)
+    else:
+        format_context(ctx)
     run_async(gm.close())
 
 
@@ -312,24 +351,53 @@ def update(
     ),
     source: str = typer.Option("update", "--source", "-s", help="Source label"),
     group: Optional[str] = typer.Option(None, "--group", "-g", help="Memory group"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """Add new information that may supersede old facts. Graphiti handles temporal invalidation."""
     gm = GraphMem()
     result = run_async(gm.add(content, source=source, group_id=group))
-    format_add_result(result)
-    console.print(
-        "[dim]Conflicting old facts are automatically marked as invalid.[/dim]"
-    )
+    if as_json:
+        _output_json(result)
+    else:
+        format_add_result(result)
+        console.print(
+            "[dim]Conflicting old facts are automatically marked as invalid.[/dim]"
+        )
     run_async(gm.close())
     _write_live_data_silent(group)
 
 
 @app.command()
 def remove(
-    entity_id: str = typer.Argument(..., help="Entity ID to remove"),
+    entity_id: Optional[str] = typer.Argument(None, help="Entity ID to remove"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="Entity name to remove (instead of ID)"),
+    group: Optional[str] = typer.Option(None, "--group", "-g", help="Memory group"),
 ):
-    """Remove an entity from the graph."""
+    """Remove an entity from the graph by ID or name."""
+    if not entity_id and not name:
+        console.print("[red]Provide either an entity ID or --name[/red]")
+        raise typer.Exit(1)
+
     gm = GraphMem()
+
+    if name and not entity_id:
+        # Look up entity by name
+        gid = group if group is not None else None
+        entities = run_async(gm.list_entities(limit=1000, group_id=gid))
+        matches = [e for e in entities if e["name"].lower() == name.lower()]
+        if not matches:
+            console.print(f"[red]No entity found with name '{name}'[/red]")
+            run_async(gm.close())
+            raise typer.Exit(1)
+        if len(matches) > 1:
+            console.print(f"[yellow]Multiple entities named '{name}':[/yellow]")
+            for m in matches:
+                console.print(f"  {m['id']}  {m['name']}")
+            console.print("[dim]Use the full ID to remove a specific one.[/dim]")
+            run_async(gm.close())
+            raise typer.Exit(1)
+        entity_id = matches[0]["id"]
+
     ok = run_async(gm.remove(entity_id))
     if ok:
         console.print(f"[green]Removed entity {entity_id}[/green]")
@@ -362,11 +430,15 @@ app.add_typer(list_app, name="list")
 def list_episodes(
     limit: int = typer.Option(20, "--limit", "-l"),
     group: Optional[str] = typer.Option(None, "--group", "-g"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List recent episodes."""
     gm = GraphMem()
     items = run_async(gm.list_episodes(limit=limit, group_id=group))
-    format_list(items, "Episodes")
+    if as_json:
+        _output_json(items)
+    else:
+        format_list(items, "Episodes")
     run_async(gm.close())
 
 
@@ -374,20 +446,29 @@ def list_episodes(
 def list_entities(
     limit: int = typer.Option(20, "--limit", "-l"),
     group: Optional[str] = typer.Option(None, "--group", "-g"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
     """List entities in the graph."""
     gm = GraphMem()
     items = run_async(gm.list_entities(limit=limit, group_id=group))
-    format_list(items, "Entities")
+    if as_json:
+        _output_json(items)
+    else:
+        format_list(items, "Entities")
     run_async(gm.close())
 
 
 @app.command()
-def status():
+def status(
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
     """Show graph database statistics and connection info."""
     gm = GraphMem()
     s = run_async(gm.status())
-    format_status(s)
+    if as_json:
+        _output_json(s)
+    else:
+        format_status(s)
     run_async(gm.close())
 
 
@@ -431,7 +512,13 @@ def viz(
     link_count = len(data.get("links", []))
 
     if node_count == 0:
-        console.print("[yellow]No entities to visualize. Add some memories first.[/yellow]")
+        console.print(
+            "[yellow]No entities to visualize yet.[/yellow]\n"
+            "\n"
+            "  Get started:\n"
+            "    [bold]graphmem add[/bold] \"Your first memory\"\n"
+            "    [bold]graphmem viz[/bold]\n"
+        )
         return
 
     if live:
